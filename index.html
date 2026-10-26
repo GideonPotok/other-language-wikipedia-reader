@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="HeWiki">
+<meta name="theme-color" content="#f6f7f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#15181b" media="(prefers-color-scheme: dark)">
+<title>Hebrew Wikipedia Reader</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@400;500;700&family=Heebo:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+<style>
+/* Layout: one reading column; a thin coverage strip under the title compares the Hebrew and English articles. */
+:root{
+  --bg:#f6f7f4; --paper:#fdfdfb; --fg:#1c2024; --muted:#5d6670; --rule:#d9ddd6;
+  --accent:#0b5aa0; --accent-ink:#ffffff; --he:#8a5a00; --he-bg:#fbf3df;
+  --only:#8b2f1a; --only-bg:#f9e7e1; --bar-he:#c98a1a; --bar-en:#0b5aa0;
+  --f-ui:"Heebo",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
+  --f-he:"Frank Ruhl Libre","David",Georgia,serif;
+  --f-en:"Source Serif 4",Georgia,"Times New Roman",serif;
+  --fs:1.05rem;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#15181b; --paper:#1c2024; --fg:#e6e8e3; --muted:#9aa3ab; --rule:#2e343a;
+    --accent:#6fb0ee; --accent-ink:#0f1a26; --he:#e2b35a; --he-bg:#2a2416;
+    --only:#f0a08a; --only-bg:#33201b; --bar-he:#e2b35a; --bar-en:#6fb0ee; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#15181b; --paper:#1c2024; --fg:#e6e8e3; --muted:#9aa3ab; --rule:#2e343a;
+  --accent:#6fb0ee; --accent-ink:#0f1a26; --he:#e2b35a; --he-bg:#2a2416;
+  --only:#f0a08a; --only-bg:#33201b; --bar-he:#e2b35a; --bar-en:#6fb0ee; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg)}
+body{font:400 var(--fs)/1.55 var(--f-en);padding-bottom:env(safe-area-inset-bottom,0px)}
+button,input{font-family:var(--f-ui);font-size:1rem;color:inherit}
+button{cursor:pointer;background:none;border:1px solid var(--rule);border-radius:999px;padding:.35rem .8rem;line-height:1.2}
+button:hover{border-color:var(--accent)}
+button:focus-visible,input:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+a{color:var(--accent)}
+.hdr{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--rule);padding-top:env(safe-area-inset-top,0px)}
+.hdr-in{max-width:46rem;margin:0 auto;padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px));padding-block:.6rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
+.brand{font:700 1.15rem/1 var(--f-he);letter-spacing:.01em;white-space:nowrap;text-decoration:none;color:var(--fg)}
+.brand small{font:500 .7rem var(--f-ui);color:var(--muted);display:block;margin-top:.2rem;letter-spacing:.08em;text-transform:uppercase}
+.search{flex:1 1 14rem;min-width:0;position:relative}
+.search input{width:100%;border:1px solid var(--rule);background:var(--paper);border-radius:999px;padding:.5rem 2.4rem .5rem 1rem;font-size:1rem}
+.search .clear{position:absolute;right:.4rem;top:50%;transform:translateY(-50%);border:0;padding:.2rem .5rem;color:var(--muted)}
+.results{position:absolute;left:0;right:0;top:calc(100% + .4rem);background:var(--paper);border:1px solid var(--rule);border-radius:.8rem;box-shadow:0 10px 30px rgba(0,0,0,.12);max-height:70vh;overflow:auto;z-index:6}
+.results:empty{display:none}
+.res{display:grid;grid-template-columns:3rem 1fr;gap:.7rem;padding:.6rem .8rem;border-bottom:1px solid var(--rule);cursor:pointer;align-items:center}
+.res:last-child{border-bottom:0}
+.res:hover,.res:focus{background:var(--bg)}
+.res img,.res .noimg{width:3rem;height:3rem;object-fit:cover;border-radius:.4rem;background:var(--rule)}
+.res .t{font-family:var(--f-ui);font-weight:500;line-height:1.25}
+.res .he{font-family:var(--f-he);color:var(--muted);direction:rtl;text-align:right;font-size:.95rem}
+.res .d{font-size:.8rem;color:var(--muted);font-family:var(--f-ui)}
+.res.note{display:block;color:var(--muted);font-family:var(--f-ui);font-size:.85rem;cursor:default}
+.tools{display:flex;gap:.4rem;flex-wrap:wrap;align-items:center}
+.tools .sep{width:1px;height:1.4rem;background:var(--rule)}
+.prog{height:2px;background:transparent;position:relative}
+.prog i{position:absolute;left:0;top:0;bottom:0;background:var(--accent);width:0;transition:width .25s}
+main{max-width:46rem;margin:0 auto;padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px));padding-block:1rem 4rem}
+.home h1{font:500 1.9rem/1.15 var(--f-he);margin:.6rem 0 .3rem;text-wrap:balance}
+.home p{color:var(--muted);font-family:var(--f-ui);max-width:34rem}
+.chips{display:flex;flex-wrap:wrap;gap:.45rem;margin:.8rem 0 1.4rem}
+.chips button{font-family:var(--f-he);font-size:1.05rem;direction:rtl}
+.recent h2,.cmp h2{font:600 .75rem var(--f-ui);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:1.2rem 0 .5rem}
+.recent ul{list-style:none;padding:0;margin:0;display:grid;gap:.3rem}
+.recent a{display:flex;justify-content:space-between;gap:1rem;text-decoration:none;color:var(--fg);padding:.5rem .7rem;border:1px solid var(--rule);border-radius:.6rem;font-family:var(--f-ui)}
+.recent a span:last-child{font-family:var(--f-he);color:var(--muted);direction:rtl}
+.banner{background:var(--only-bg);color:var(--only);border-radius:.6rem;padding:.6rem .9rem;font-family:var(--f-ui);font-size:.9rem;margin:.6rem 0}
+.banner.ok{background:var(--he-bg);color:var(--he)}
+/* article head */
+.ah{margin:.4rem 0 1rem;border-bottom:1px solid var(--rule);padding-bottom:.8rem}
+.ah h1{font:600 2rem/1.15 var(--f-en);margin:.2rem 0;text-wrap:balance}
+.ah .he-title{font:500 1.35rem/1.2 var(--f-he);direction:rtl;text-align:right;color:var(--he);margin:0 0 .6rem}
+.cov{display:grid;grid-template-columns:auto 1fr auto;gap:.3rem .7rem;align-items:center;font:500 .8rem/1.3 var(--f-ui);color:var(--muted);margin:.6rem 0}
+.cov .bar{height:.5rem;background:var(--rule);border-radius:999px;overflow:hidden;min-width:0}
+.cov .bar i{display:block;height:100%;width:0;border-radius:999px;transition:width .4s}
+.cov .bar.he i{background:var(--bar-he)} .cov .bar.en i{background:var(--bar-en)}
+.cov b{font-variant-numeric:tabular-nums;font-weight:600;color:var(--fg)}
+.cov .lab{font-family:var(--f-ui)}
+.meta{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;margin-top:.6rem;font-family:var(--f-ui);font-size:.85rem}
+.chip{display:inline-block;border-radius:999px;padding:.2rem .6rem;font-weight:500;font-size:.8rem}
+.chip.only{background:var(--only-bg);color:var(--only)}
+.chip.he{background:var(--he-bg);color:var(--he)}
+.modes{display:inline-flex;border:1px solid var(--rule);border-radius:999px;overflow:hidden}
+.modes button{border:0;border-radius:0;padding:.35rem .75rem;font-size:.85rem}
+.modes button+button{border-left:1px solid var(--rule)}
+.status{font-family:var(--f-ui);font-size:.8rem;color:var(--muted);margin-left:auto}
+/* comparison panel */
+.cmp{display:none;border:1px solid var(--rule);border-radius:.8rem;padding:.8rem 1rem;margin:.6rem 0 1rem;background:var(--paper)}
+.cmp.open{display:block}
+.cmp .cols{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+@media (max-width:560px){.cmp .cols{grid-template-columns:1fr}}
+.cmp h3{font:600 .85rem var(--f-ui);margin:.2rem 0 .5rem;display:flex;justify-content:space-between;gap:.5rem}
+.cmp h3 span{color:var(--muted);font-weight:500;font-variant-numeric:tabular-nums}
+.cmp ol{list-style:none;margin:0;padding:0;display:grid;gap:.3rem;font-family:var(--f-ui);font-size:.82rem}
+.cmp li{display:grid;grid-template-columns:1fr 5rem;gap:.5rem;align-items:center;min-width:0}
+.cmp li.l3{padding-left:.9rem;color:var(--muted)}
+.cmp li .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cmp li .n small{color:var(--muted);font-family:var(--f-he);direction:rtl;unicode-bidi:isolate;margin-left:.3rem}
+.cmp li .b{height:.4rem;background:var(--rule);border-radius:999px;overflow:hidden}
+.cmp li .b i{display:block;height:100%}
+.cmp .he li .b i{background:var(--bar-he)} .cmp .en li .b i{background:var(--bar-en)}
+.cmp .empty{color:var(--muted);font-family:var(--f-ui);font-size:.85rem}
+/* article body */
+.body{font-size:var(--fs)}
+.body[data-mode="he"]{direction:rtl;text-align:right;font-family:var(--f-he)}
+.body .t-en{display:block;direction:ltr;text-align:left;unicode-bidi:isolate;font-family:var(--f-en)}
+.body .t-he{display:block;direction:rtl;text-align:right;unicode-bidi:isolate;font-family:var(--f-he)}
+.body[data-mode="en"] .t-he{display:none}
+.body[data-mode="he"] .t-en{display:none}
+.body[data-mode="both"] .t-he{color:var(--he);font-size:.94em;margin-top:.25em;padding-right:.6rem;border-right:2px solid var(--he-bg)}
+.body[data-mode="en"] .blk.show .t-he{display:block;color:var(--he);font-size:.94em;margin-top:.3em;padding:.4rem .6rem;background:var(--he-bg);border-radius:.4rem}
+.body .blk.pending .t-en{color:var(--muted)}
+.body[data-mode="en"] .blk{cursor:pointer}
+.body h2,.body h3,.body h4{font-family:var(--f-en);line-height:1.2;margin:1.6em 0 .5em;text-wrap:balance}
+.body h2{font-size:1.45em;font-weight:600;border-bottom:1px solid var(--rule);padding-bottom:.2em}
+.body h3{font-size:1.15em;font-weight:600}.body h4{font-size:1em;font-weight:600}
+.body h2 .t-he,.body h3 .t-he{font-weight:500}
+.body p{margin:0 0 1em}
+.body img{max-width:100%;height:auto}
+.body figure,.body .thumb,.body .tmulti{margin:1em 0;max-width:100%}
+.body figure{display:block}
+.body figcaption,.body .thumbcaption{font:400 .85rem/1.4 var(--f-ui);color:var(--muted);margin-top:.3rem}
+.body table{border-collapse:collapse;max-width:100%;font-size:.9em}
+.body .tbl{overflow-x:auto;margin:1em 0}
+.body td,.body th{padding:.25rem .5rem;vertical-align:top;border:1px solid var(--rule)}
+.body th{background:var(--paper)}
+.body .infobox,.body table.infobox{float:none;width:100%!important;max-width:100%;margin:0 0 1.2rem;background:var(--paper);font-size:.88em}
+@media (min-width:760px){.body[data-mode="en"] .infobox,.body[data-mode="both"] .infobox{float:right;width:22rem!important;margin:0 0 1rem 1.2rem}.body[data-mode="he"] .infobox{float:left;width:22rem!important;margin:0 1.2rem 1rem 0}}
+.body .infobox img{max-width:100%;height:auto}
+.body .infobox th,.body .infobox td{border:0;border-bottom:1px solid var(--rule)}
+.body sup.reference{font-size:.7em;color:var(--muted)}
+.body .reflist,.body ol.references{font-size:.85em;color:var(--muted);direction:rtl;text-align:right;font-family:var(--f-he)}
+.body .hatnote{font-size:.9em;color:var(--muted);font-style:italic;margin:0 0 1em}
+.body ul,.body ol{padding-inline-start:1.4em}
+.body[data-mode="he"] ul,.body[data-mode="he"] ol{padding-inline-start:1.4em}
+.body .mw-empty-elt,.body .navbox,.body .metadata,.body .ambox,.body .noprint,.body .mw-editsection,.body .sistersitebox,.body .portal,.body .catlinks,.body #toc,.body .toc,.body .mw-jump-link,.body .ambox-content{display:none!important}
+.body .collapse{margin:1em 0}
+.body details summary{cursor:pointer;font-family:var(--f-ui);font-weight:500;color:var(--muted)}
+.foot{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--rule);font:400 .8rem/1.5 var(--f-ui);color:var(--muted)}
+.skel{height:1em;background:var(--rule);border-radius:.3em;margin:.5em 0;animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.5}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+.fsz{display:inline-flex;gap:.2rem}
+.fsz button{padding:.3rem .6rem;font-family:var(--f-en)}
+</style>
+</head>
+<body>
+<header class="hdr">
+  <div class="hdr-in">
+    <a class="brand" href="#" id="brand">ויקיפדיה<small>Hebrew · in English</small></a>
+    <div class="search">
+      <input id="q" type="search" placeholder="Search Hebrew Wikipedia (English or עברית)" autocomplete="off" dir="auto" aria-label="Search Hebrew Wikipedia">
+      <button class="clear" id="clear" aria-label="Clear search" hidden>×</button>
+      <div class="results" id="results" role="listbox"></div>
+    </div>
+    <div class="tools">
+      <button id="rnd" title="Random Hebrew article">Random</button>
+      <button id="rndonly" title="A random article that exists only in Hebrew">Hebrew-only</button>
+      <span class="sep"></span>
+      <span class="fsz"><button id="fsm" aria-label="Smaller text">A−</button><button id="fsp" aria-label="Larger text">A+</button></span>
+    </div>
+  </div>
+  <div class="prog"><i id="prog"></i></div>
+</header>
+
+<main id="main"></main>
+
+<script>
+(() => {
+'use strict';
+const $ = (s, r=document) => r.querySelector(s);
+const el = (tag, attrs={}, ...kids) => { const e = document.createElement(tag); for (const [k,v] of Object.entries(attrs)) { if (k==='class') e.className=v; else if (k==='html') e.innerHTML=v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (v!==false && v!=null) e.setAttribute(k, v); } for (const k of kids) if (k!=null) e.append(k); return e; };
+const HEB = /[א-ת]/;
+const fmtK = n => n==null ? '—' : n >= 1000 ? (n/1000).toFixed(n>=10000?0:1).replace(/\.0$/,'')+'k' : String(n);
+const store = { get(k,d){ try{ const v=localStorage.getItem(k); return v==null?d:JSON.parse(v);}catch{return d;} }, set(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} } };
+
+/* ---------- Wikipedia API ---------- */
+async function api(lang, params) {
+  const u = new URL(`https://${lang}.wikipedia.org/w/api.php`);
+  Object.entries({format:'json', formatversion:2, origin:'*', ...params}).forEach(([k,v]) => u.searchParams.set(k, v));
+  const r = await fetch(u.toString());
+  if (!r.ok) throw new Error(`Wikipedia ${lang}: HTTP ${r.status}`);
+  return r.json();
+}
+
+/* ---------- Translation (Google's public endpoint, no key) ---------- */
+const tcache = new Map(Object.entries(store.get('tr', {})));
+let tdirty = 0;
+function saveCache() {
+  if (!tdirty) return; tdirty = 0;
+  let obj = Object.fromEntries(tcache);
+  let s = JSON.stringify(obj);
+  while (s.length > 1.5e6 && tcache.size) { // drop oldest half
+    const keys = [...tcache.keys()].slice(0, Math.ceil(tcache.size/2));
+    keys.forEach(k => tcache.delete(k)); obj = Object.fromEntries(tcache); s = JSON.stringify(obj);
+  }
+  store.set('tr', obj);
+}
+setInterval(saveCache, 4000);
+let translateBroken = false;
+async function gtx(text, sl='he', tl='en') {
+  const r = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sl}&tl=${tl}&dt=t`, {
+    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body:'q='+encodeURIComponent(text) });
+  if (!r.ok) throw new Error('translate: HTTP '+r.status);
+  const j = await r.json();
+  return (j[0]||[]).map(s => s[0]).join('');
+}
+// Translate many strings: batch them joined by blank lines, fall back to singles when the batch splits wrong.
+async function translateMany(texts, onEach, sl='he', tl='en') {
+  const todo = [];
+  texts.forEach((t, i) => { const k = sl+'|'+t; if (tcache.has(k)) onEach(i, tcache.get(k)); else if (!t.trim() || (sl==='he' && !HEB.test(t))) onEach(i, t); else todo.push(i); });
+  const batches = []; let cur = [], len = 0;
+  for (const i of todo) { const L = texts[i].length; if (cur.length && (len + L > 2600 || cur.length >= 30)) { batches.push(cur); cur=[]; len=0; } cur.push(i); len += L + 2; }
+  if (cur.length) batches.push(cur);
+  const SEP = '\n\n';
+  let active = 0; const queue = batches.slice();
+  await new Promise(resolve => {
+    const next = () => {
+      if (!queue.length && !active) return resolve();
+      while (active < 3 && queue.length) {
+        const b = queue.shift(); active++;
+        (async () => {
+          try {
+            let out = null;
+            if (b.length > 1) {
+              const joined = b.map(i => texts[i].replace(/\n+/g,' ')).join(SEP);
+              const res = await gtx(joined, sl, tl);
+              const parts = res.split(/\n\s*\n/);
+              if (parts.length === b.length) out = parts;
+            }
+            if (!out) { out = []; for (const i of b) out.push(await gtx(texts[i].replace(/\n+/g,' '), sl, tl)); }
+            b.forEach((i, j) => { const v = out[j].trim(); tcache.set(sl+'|'+texts[i], v); tdirty = 1; onEach(i, v); });
+          } catch (e) {
+            translateBroken = true; b.forEach(i => onEach(i, null, e));
+          } finally { active--; next(); }
+        })();
+      }
+    };
+    next();
+  });
+}
+const tr1 = async (t, sl='he', tl='en') => { let v=null; await translateMany([t], (_,x)=>{v=x;}, sl, tl); return v; };
+
+/* ---------- State & routing ---------- */
+const main = $('#main'), prog = $('#prog');
+let mode = store.get('mode', 'en');
+let fs = store.get('fs', 1.05); document.documentElement.style.setProperty('--fs', fs+'rem');
+$('#fsm').onclick = () => { fs = Math.max(.85, +(fs-.08).toFixed(2)); store.set('fs', fs); document.documentElement.style.setProperty('--fs', fs+'rem'); };
+$('#fsp').onclick = () => { fs = Math.min(1.6, +(fs+.08).toFixed(2)); store.set('fs', fs); document.documentElement.style.setProperty('--fs', fs+'rem'); };
+let recents = store.get('recents', []);
+function remember(he, en) { recents = [{he, en}, ...recents.filter(r => r.he !== he)].slice(0, 12); store.set('recents', recents); }
+const go = title => { location.hash = '#' + encodeURIComponent(title.replace(/ /g,'_')); };
+window.addEventListener('hashchange', route);
+let loadToken = 0;
+function route() {
+  const h = decodeURIComponent(location.hash.slice(1)).replace(/_/g,' ').trim();
+  closeResults();
+  if (!h) renderHome(); else loadArticle(h);
+  window.scrollTo(0,0);
+}
+
+/* ---------- Home ---------- */
+const SUGGEST = ['דבלין','חומוס','יהודה עמיחי','שוק מחנה יהודה','עגנון','מלחמת ששת הימים','צ׳ולנט','תל אביב'];
+function renderHome() {
+  loadToken++;
+  main.replaceChildren(
+    el('section', {class:'home'},
+      el('h1', {}, 'Read Hebrew Wikipedia in English.'),
+      el('p', {}, 'The Hebrew edition has its own articles and its own version of shared topics. Search in either language, read a machine translation, tap any paragraph for the original, and see how the Hebrew and English articles compare.'),
+      el('div', {class:'chips'}, ...SUGGEST.map(t => el('button', {onclick:()=>go(t)}, t))),
+      recents.length ? el('div', {class:'recent'}, el('h2', {}, 'Recent'), el('ul', {}, ...recents.map(r => el('li', {}, el('a', {href:'#'+encodeURIComponent(r.he.replace(/ /g,'_'))}, el('span',{},r.en||r.he), el('span',{},r.he)))))) : null,
+      translateBroken ? el('div', {class:'banner'}, 'The translation service could not be reached from this browser. Articles will show in Hebrew.') : null
+    ));
+}
+
+/* ---------- Search ---------- */
+const q = $('#q'), results = $('#results'), clearBtn = $('#clear');
+let sTimer, sToken = 0;
+q.addEventListener('input', () => { clearBtn.hidden = !q.value; clearTimeout(sTimer); sTimer = setTimeout(search, 260); });
+q.addEventListener('keydown', e => { if (e.key === 'Enter') { clearTimeout(sTimer); search(true); } if (e.key === 'Escape') closeResults(); if (e.key === 'ArrowDown') { const f = results.querySelector('.res[tabindex]'); if (f) { e.preventDefault(); f.focus(); } } });
+results.addEventListener('keydown', e => { const items = [...results.querySelectorAll('.res[tabindex]')]; const i = items.indexOf(document.activeElement); if (e.key==='ArrowDown' && items[i+1]) { e.preventDefault(); items[i+1].focus(); } if (e.key==='ArrowUp') { e.preventDefault(); (items[i-1]||q).focus(); } if (e.key==='Enter' && i>=0) items[i].click(); if (e.key==='Escape') { closeResults(); q.focus(); } });
+clearBtn.onclick = () => { q.value=''; clearBtn.hidden = true; closeResults(); q.focus(); };
+document.addEventListener('click', e => { if (!e.target.closest('.search')) closeResults(); });
+function closeResults() { results.replaceChildren(); }
+async function search(full=false) {
+  const text = q.value.trim(); const tok = ++sToken;
+  if (text.length < 2) return closeResults();
+  results.replaceChildren(el('div', {class:'res note'}, 'Searching…'));
+  try {
+    let hits = [];
+    const pageProps = { prop:'description|pageimages|langlinks', piprop:'thumbnail', pithumbsize:96, lllang:'en', lllimit:50 };
+    if (HEB.test(text)) {
+      const r = await api('he', { generator: full?'search':'prefixsearch', [full?'gsrsearch':'gpssearch']: text, [full?'gsrlimit':'gpslimit']: 8, ...pageProps });
+      hits = (r.query?.pages||[]).sort((a,b)=>(a.index||0)-(b.index||0)).map(p => ({ he:p.title, desc:p.description, img:p.thumbnail?.source, en:p.langlinks?.[0]?.title }));
+    } else {
+      // English words: (1) English Wikipedia hits that have a Hebrew article, (2) the query translated into Hebrew and searched directly.
+      const [enR, heQ] = await Promise.all([
+        api('en', { generator: full?'search':'prefixsearch', [full?'gsrsearch':'gpssearch']: text, [full?'gsrlimit':'gpslimit']: 6, prop:'langlinks|description', lllang:'he', lllimit:50 }).catch(()=>null),
+        tr1(text, 'en', 'he').catch(()=>null) ]);
+      if (tok !== sToken) return;
+      const viaEn = (enR?.query?.pages||[]).sort((a,b)=>(a.index||0)-(b.index||0)).filter(p => p.langlinks?.[0]).map(p => ({ he:p.langlinks[0].title, en:p.title, desc:p.description, viaEn:true }));
+      let direct = [];
+      if (heQ && HEB.test(heQ)) {
+        const r = await api('he', { generator: full?'search':'prefixsearch', [full?'gsrsearch':'gpssearch']: heQ, [full?'gsrlimit':'gpslimit']: 8, ...pageProps }).catch(()=>null);
+        direct = (r?.query?.pages||[]).sort((a,b)=>(a.index||0)-(b.index||0)).map(p => ({ he:p.title, desc:p.description, img:p.thumbnail?.source, en:p.langlinks?.[0]?.title }));
+      }
+      const seen = new Set(); hits = [...viaEn, ...direct].filter(h => !seen.has(h.he) && seen.add(h.he));
+      if (heQ && HEB.test(heQ)) hits.heQ = heQ;
+    }
+    if (tok !== sToken) return;
+    if (!hits.length) { results.replaceChildren(el('div', {class:'res note'}, full ? 'Nothing found.' : 'No title match — press Enter for a full-text search.')); return; }
+    results.replaceChildren(...hits.map(h => {
+      const row = el('div', {class:'res', role:'option', tabindex:0, onclick:()=>{ go(h.he); q.blur(); }},
+        h.img ? el('img', {src:h.img, alt:''}) : el('div', {class:'noimg'}),
+        el('div', {}, el('div', {class:'t'}, h.en || '…'), el('div', {class:'he'}, h.he), el('div', {class:'d'}, [h.desc, h.en ? null : 'no English article'].filter(Boolean).join(' · '))));
+      row._h = h; return row; }),
+      hits.heQ ? el('div', {class:'res note'}, `Searched Hebrew Wikipedia for “${hits.heQ}”`) : null);
+    // Fill in translated titles / descriptions for rows lacking an English title.
+    const rows = [...results.querySelectorAll('.res[tabindex]')];
+    const need = rows.filter(r => !r._h.en);
+    translateMany(need.map(r => r._h.he), (i, v) => { if (v && tok === sToken) need[i].querySelector('.t').textContent = v; });
+    const needD = rows.filter(r => r._h.desc && HEB.test(r._h.desc));
+    translateMany(needD.map(r => r._h.desc), (i, v) => { if (v && tok === sToken) { const d = needD[i].querySelector('.d'); d.textContent = d.textContent.replace(needD[i]._h.desc, v); } });
+  } catch (e) { if (tok === sToken) results.replaceChildren(el('div', {class:'res note'}, 'Search failed: ' + e.message)); }
+}
+
+/* ---------- Random ---------- */
+$('#rnd').onclick = async () => { try { const r = await api('he', {list:'random', rnnamespace:0, rnlimit:1}); go(r.query.random[0].title); } catch(e) { main.prepend(el("div", {class:"banner"}, e.message)); } };
+$('#rndonly').onclick = async () => {
+  const b = $('#rndonly'); b.disabled = true; b.textContent = 'Looking…';
+  try {
+    for (let tries = 0; tries < 4; tries++) {
+      const r = await api('he', { generator:'random', grnnamespace:0, grnlimit:20, prop:'langlinks|info', lllang:'en' });
+      const pick = (r.query?.pages||[]).filter(p => !p.langlinks?.length && p.length > 4000).sort((a,b)=>b.length-a.length)[0];
+      if (pick) { go(pick.title); break; }
+    }
+  } catch(e) { main.prepend(el("div", {class:"banner"}, e.message)); } finally { b.disabled = false; b.textContent = 'Hebrew-only'; }
+};
+
+/* ---------- Article ---------- */
+const BLOCK_SEL = 'p, h2, h3, h4, h5, li, dt, dd, th, td, caption, blockquote, figcaption, .thumbcaption';
+async function loadArticle(title) {
+  const tok = ++loadToken;
+  prog.style.width = '0%';
+  main.replaceChildren(el('div', {class:'ah'}, el('div', {class:'skel', style:'width:60%;height:2rem'}), el('div', {class:'skel', style:'width:35%'})), ...[90,100,95,80,100,70].map(w => el('div', {class:'skel', style:`width:${w}%`})));
+  let parse;
+  try {
+    const r = await api('he', { action:'parse', page:title, prop:'text|sections|langlinks|displaytitle', disableeditsection:1, disabletoc:1, redirects:1 });
+    if (r.error) throw new Error(r.error.info || r.error.code);
+    parse = r.parse;
+  } catch (e) { if (tok===loadToken) main.replaceChildren(el('div', {class:'banner'}, `Could not load “${title}”: ${e.message}`)); return; }
+  if (tok !== loadToken) return;
+  const heTitle = parse.title;
+  const enTitle = (parse.langlinks||[]).find(l => l.lang==='en')?.title || null;
+
+  // --- build DOM ---
+  const doc = new DOMParser().parseFromString(parse.text, 'text/html');
+  const root = doc.body.firstElementChild || doc.body;
+  root.querySelectorAll('style, script, link, .mw-editsection, #toc, .toc, .navbox, .mw-jump-link, .sistersitebox, .catlinks, .portal, .metadata, .ambox, .noprint, .mw-empty-elt, .printfooter, .mw-authority-control, .mw-hidden-catlinks, [style*="display:none"], [style*="display: none"]').forEach(n => n.remove());
+  root.querySelectorAll('img').forEach(img => { const fix = s => s && s.replace(/(^|,\s*)\/\//g, '$1https://'); if (img.getAttribute('src')) img.src = fix(img.getAttribute('src')); if (img.getAttribute('srcset')) img.setAttribute('srcset', fix(img.getAttribute('srcset'))); img.loading = 'lazy'; img.removeAttribute('width'); img.removeAttribute('height'); });
+  root.querySelectorAll('[style]').forEach(n => { n.style.removeProperty('float'); n.style.removeProperty('width'); n.style.removeProperty('font-size'); n.style.removeProperty('color'); n.style.removeProperty('background'); n.style.removeProperty('background-color'); });
+  root.querySelectorAll('a').forEach(a => {
+    const href = a.getAttribute('href') || '';
+    if (href.startsWith('/wiki/') && !/^\/wiki\/[^:]+:/.test(decodeURIComponent(href)) ) { a.dataset.t = decodeURIComponent(href.slice(6)).split('#')[0].replace(/_/g,' '); a.setAttribute('href', '#'+encodeURIComponent(href.slice(6).split('#')[0])); }
+    else if (href.startsWith('#')) { /* footnote jump */ }
+    else { if (href.startsWith('//')) a.href = 'https:'+href; else if (href.startsWith('/')) a.href = 'https://he.wikipedia.org'+href; a.target = '_blank'; a.rel = 'noopener'; }
+  });
+  // Tables scroll in their own box, except the infobox which gets its own treatment.
+  root.querySelectorAll('table').forEach(t => { if (t.closest('.infobox') || t.classList.contains('infobox')) return; const w = doc.createElement('div'); w.className='tbl'; t.replaceWith(w); w.append(t); });
+  // Reference list: keep in Hebrew, collapsed.
+  root.querySelectorAll('ol.references, .reflist, .mw-references-wrap').forEach(r => { if (r.closest('details')) return; const d = doc.createElement('details'); d.className='collapse'; d.innerHTML = '<summary>References (Hebrew)</summary>'; r.replaceWith(d); d.append(r); });
+  // List items that hold a sub-list: split off their own text so it can be translated separately.
+  root.querySelectorAll('li, dd').forEach(li => { const sub = [...li.children].find(c => /^(UL|OL|DL)$/.test(c.tagName)); if (!sub) return; const own = doc.createElement('div'); own.className='li-own'; while (li.firstChild && li.firstChild !== sub) own.append(li.firstChild); if (own.textContent.trim()) li.prepend(own); });
+
+  // --- choose translatable blocks ---
+  const blocks = []; const srcs = [];
+  for (const b of root.querySelectorAll(BLOCK_SEL + ', .li-own')) {
+    if (b.closest('ol.references, .reflist, .mw-references-wrap, .mw-highlight, pre, code, .mwe-math-element')) continue;
+    if (b.matches('li, dd') && b.querySelector('.li-own')) continue;
+    if (b.querySelector(BLOCK_SEL)) continue; // not a leaf block
+    const clone = b.cloneNode(true); clone.querySelectorAll('sup.reference, .noexcerpt, .mw-cite-backlink').forEach(n => n.remove());
+    const text = clone.textContent.replace(/\s+/g,' ').trim();
+    if (!HEB.test(text)) continue;
+    b.classList.add('blk', 'pending');
+    const he = doc.createElement('span'); he.className='t-he'; while (b.firstChild) he.append(b.firstChild);
+    const en = doc.createElement('span'); en.className='t-en'; en.textContent = text;
+    b.append(en, he); blocks.push(b); srcs.push(text);
+  }
+
+  // --- head ---
+  const head = el('div', {class:'ah'});
+  const h1 = el('h1', {}, enTitle || heTitle);
+  const heH = el('p', {class:'he-title'}, heTitle);
+  const cov = el('div', {class:'cov'});
+  const meta = el('div', {class:'meta'});
+  const cmp = el('section', {class:'cmp'});
+  head.append(h1, heH, cov, meta);
+  const modes = el('div', {class:'modes', role:'group', 'aria-label':'Language'});
+  const modeBtns = { en:'English', both:'Both', he:'עברית' };
+  Object.entries(modeBtns).forEach(([k,v]) => modes.append(el('button', {'aria-pressed': String(mode===k), onclick:()=>setMode(k)}, v)));
+  const status = el('span', {class:'status'});
+  const cmpBtn = el('button', {onclick:()=>{ cmp.classList.toggle('open'); if (cmp.classList.contains('open')) buildCompare(); }}, 'Compare sections');
+  meta.append(modes, enTitle ? el('a', {href:`https://en.wikipedia.org/wiki/${encodeURIComponent(enTitle.replace(/ /g,'_'))}`, target:'_blank', rel:'noopener'}, 'English article ↗') : el('span', {class:'chip only'}, 'Hebrew-only · no English article'), el('a', {href:`https://he.wikipedia.org/wiki/${encodeURIComponent(heTitle.replace(/ /g,'_'))}`, target:'_blank', rel:'noopener'}, 'he.wikipedia ↗'), cmpBtn, status);
+  const body = el('article', {class:'body', 'data-mode':mode, lang:'he'});
+  body.append(...root.childNodes);
+  const foot = el('div', {class:'foot'}, 'Text from Hebrew Wikipedia, CC BY-SA 4.0. English is machine translation; tap a paragraph to read the original.');
+  main.replaceChildren(head, cmp, body, foot);
+  remember(heTitle, enTitle);
+  document.title = (enTitle || heTitle) + ' · Hebrew Wikipedia Reader';
+
+  function setMode(k) { mode = k; store.set('mode', k); body.dataset.mode = k; modes.querySelectorAll('button').forEach((b,i) => b.setAttribute('aria-pressed', String(Object.keys(modeBtns)[i]===k))); }
+  body.addEventListener('click', e => {
+    const a = e.target.closest('a[data-t]'); if (a) { e.preventDefault(); go(a.dataset.t); return; }
+    if (body.dataset.mode !== 'en') return;
+    if (e.target.closest('a, details summary, img')) return;
+    const b = e.target.closest('.blk'); if (b) b.classList.toggle('show');
+  });
+
+  // --- coverage: byte lengths of both articles ---
+  (async () => {
+    try {
+      const [heI, enI] = await Promise.all([ api('he', {prop:'info', titles:heTitle}), enTitle ? api('en', {prop:'info', titles:enTitle}) : null ]);
+      if (tok !== loadToken) return;
+      const heLen = heI.query.pages[0].length, enLen = enI ? enI.query.pages[0].length : 0, max = Math.max(heLen, enLen, 1);
+      const row = (lab, cls, n) => { const bar = el('div', {class:'bar '+cls}, el('i')); cov.append(el('span', {class:'lab'}, lab), bar, el('b', {}, fmtK(n)+' bytes')); requestAnimationFrame(() => bar.firstChild.style.width = (100*n/max)+'%'); };
+      row('Hebrew', 'he', heLen); if (enTitle) row('English', 'en', enLen);
+      cov._lens = {heLen, enLen};
+    } catch {}
+  })();
+
+  // --- title translation ---
+  if (!enTitle) tr1(heTitle).then(v => { if (v && tok===loadToken) { h1.textContent = v; remember(heTitle, v); document.title = v + ' · Hebrew Wikipedia Reader'; } });
+
+  // --- translate blocks, visible first ---
+  let done = 0; const total = srcs.length;
+  status.textContent = total ? `Translating 0/${total}` : '';
+  const order = blocks.map((b,i)=>i);
+  const onEach = (i, v, err) => {
+    const b = blocks[i]; b.classList.remove('pending');
+    if (v) b.querySelector('.t-en').textContent = v; else { b.classList.add('untranslated'); b.querySelector('.t-en').textContent = b.querySelector('.t-he').textContent.trim(); }
+    done++; if (tok===loadToken) { prog.style.width = (100*done/total)+'%'; status.textContent = done<total ? `Translating ${done}/${total}` : (translateBroken ? 'Translation unavailable' : ''); if (done===total) setTimeout(()=>{ if (tok===loadToken) prog.style.width='0%'; }, 600); }
+  };
+  if (total) {
+    // First 40 blocks first (the lead), then the rest.
+    const first = order.slice(0, 40), rest = order.slice(40);
+    await translateMany(first.map(i=>srcs[i]), (j,v,e)=>onEach(first[j],v,e));
+    if (tok !== loadToken) return;
+    if (translateBroken && mode !== 'he') { setMode('he'); main.insertBefore(el('div', {class:'banner'}, 'Translation service unreachable from this browser; showing the Hebrew text. The language buttons still work if it comes back.'), cmp); }
+    await translateMany(rest.map(i=>srcs[i]), (j,v,e)=>onEach(rest[j],v,e));
+  }
+
+  // --- section comparison ---
+  let cmpBuilt = false;
+  async function buildCompare() {
+    if (cmpBuilt) return; cmpBuilt = true;
+    cmp.replaceChildren(el('h2', {}, 'Section by section'), el('p', {class:'empty'}, 'Loading…'));
+    try {
+      const heLen = cov._lens?.heLen ?? (await api('he', {prop:'info', titles:heTitle})).query.pages[0].length;
+      const heS = sizes(parse.sections, heLen);
+      let enS = null, enLen = 0;
+      if (enTitle) { const [p, i] = await Promise.all([ api('en', {action:'parse', page:enTitle, prop:'sections', redirects:1}), api('en', {prop:'info', titles:enTitle}) ]); enLen = i.query.pages[0].length; enS = sizes(p.parse.sections, enLen); }
+      const max = Math.max(...heS.map(s=>s.bytes), ...(enS||[]).map(s=>s.bytes), 1);
+      const col = (cls, label, len, list) => el('div', {class:cls}, el('h3', {}, label, el('span', {}, fmtK(len)+' bytes · '+list.length+' sections')), el('ol', {}, ...list.map(s => el('li', {class:s.level>2?'l3':''}, el('span', {class:'n', title:s.line}, s.line, s.he ? el('small', {}, s.he) : null), el('span', {class:'b'}, el('i', {style:`width:${100*s.bytes/max}%`}))))));
+      const heCol = col('he', 'Hebrew', heLen, heS);
+      cmp.replaceChildren(el('h2', {}, 'Section by section'), el('div', {class:'cols'}, heCol, enS ? col('en', 'English', enLen, enS) : el('div', {class:'en'}, el('h3', {}, 'English'), el('p', {class:'empty'}, 'No English article is linked to this one.'))));
+      // translate Hebrew section names in the left column
+      const items = [...heCol.querySelectorAll('li .n')];
+      translateMany(heS.map(s=>s.line), (i,v) => { if (v && v !== heS[i].line) { items[i].firstChild.textContent = v; items[i].append(el('small', {}, heS[i].line)); } });
+    } catch (e) { cmp.replaceChildren(el('h2', {}, 'Section by section'), el('p', {class:'empty'}, 'Could not load sections: '+e.message)); }
+  }
+  function sizes(sections, total) {
+    const s = (sections||[]).filter(x => x.byteoffset != null).map(x => ({ line: x.line.replace(/<[^>]+>/g,''), level: +x.toclevel + 1, off: x.byteoffset }));
+    const out = [{ line: '(lead)', level: 2, off: 0 }, ...s];
+    for (let i = 0; i < out.length; i++) { const next = out.slice(i+1).find(x => x.level <= out[i].level); out[i].bytes = Math.max(0, (next ? next.off : total) - out[i].off); }
+    return out.filter(x => x.level <= 3);
+  }
+}
+
+route();
+})();
+</script>
+</body>
+</html>

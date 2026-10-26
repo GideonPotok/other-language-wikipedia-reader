@@ -187,14 +187,21 @@ const fmtK = n => n==null ? '—' : n >= 1000 ? (n/1000).toFixed(n>=10000?0:1).r
 const store = { get(k,d){ try{ const v=localStorage.getItem(k); return v==null?d:JSON.parse(v);}catch{return d;} }, set(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} } };
 
 /* ---------- Wikipedia API ---------- */
+// Mobile browsers get bounced from xx.wikipedia.org to xx.m.wikipedia.org, and on iOS that bounce has been
+// seen to drop the API query string (the API then answers with its HTML help page). So on a phone we call the
+// mobile host directly, and whichever host answers with HTML instead of JSON, we try the other one once.
+const MOBILE = /Mobi|iPhone|iPad|Android/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform));
 async function api(lang, params) {
-  const u = new URL(`https://${lang}.wikipedia.org/w/api.php`);
-  Object.entries({format:'json', formatversion:2, origin:'*', ...params}).forEach(([k,v]) => u.searchParams.set(k, v));
-  const r = await fetch(u.toString());
-  if (!r.ok) throw new Error(`Wikipedia ${lang}: HTTP ${r.status}`);
-  const raw = await r.text();
-  try { return JSON.parse(raw); }
-  catch { throw new Error(`Wikipedia ${lang} sent something other than JSON (HTTP ${r.status}, ${r.headers.get('content-type')||'no content-type'}): ${raw.slice(0,160).replace(/\s+/g,' ')}`); }
+  const qs = new URLSearchParams(); Object.entries({format:'json', formatversion:2, origin:'*', ...params}).forEach(([k,v]) => qs.set(k, v));
+  const hosts = MOBILE ? [`${lang}.m.wikipedia.org`, `${lang}.wikipedia.org`] : [`${lang}.wikipedia.org`, `${lang}.m.wikipedia.org`];
+  let lastErr;
+  for (const host of hosts) {
+    const r = await fetch(`https://${host}/w/api.php?${qs}`);
+    const raw = await r.text();
+    if (r.ok) { try { return JSON.parse(raw); } catch {} }
+    lastErr = new Error(`Wikipedia ${lang} (${host}${r.redirected ? ' → '+r.url : ''}) answered HTTP ${r.status} ${r.headers.get('content-type')||''} instead of JSON: ${raw.slice(0,120).replace(/\s+/g,' ')}`);
+  }
+  throw lastErr;
 }
 
 /* ---------- Translation (Google's public endpoint, no key) ---------- */

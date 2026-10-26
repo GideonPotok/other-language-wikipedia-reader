@@ -192,7 +192,9 @@ async function api(lang, params) {
   Object.entries({format:'json', formatversion:2, origin:'*', ...params}).forEach(([k,v]) => u.searchParams.set(k, v));
   const r = await fetch(u.toString());
   if (!r.ok) throw new Error(`Wikipedia ${lang}: HTTP ${r.status}`);
-  return r.json();
+  const raw = await r.text();
+  try { return JSON.parse(raw); }
+  catch { throw new Error(`Wikipedia ${lang} sent something other than JSON (HTTP ${r.status}, ${r.headers.get('content-type')||'no content-type'}): ${raw.slice(0,160).replace(/\s+/g,' ')}`); }
 }
 
 /* ---------- Translation (Google's public endpoint, no key) ---------- */
@@ -214,7 +216,8 @@ async function gtx(text, sl='he', tl='en') {
   const r = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sl}&tl=${tl}&dt=t`, {
     method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body:'q='+encodeURIComponent(text) });
   if (!r.ok) throw new Error('translate: HTTP '+r.status);
-  const j = await r.json();
+  const raw = await r.text(); let j;
+  try { j = JSON.parse(raw); } catch { throw new Error('translate: non-JSON reply: '+raw.slice(0,120)); }
   return (j[0]||[]).map(s => s[0]).join('');
 }
 // Translate many strings: batch them joined by blank lines, fall back to singles when the batch splits wrong.
@@ -326,14 +329,14 @@ async function search(full=false) {
         h.img ? el('img', {src:h.img, alt:''}) : el('div', {class:'noimg'}),
         el('div', {}, el('div', {class:'t'}, h.en || '…'), el('div', {class:'he'}, h.he), el('div', {class:'d'}, [h.desc, h.en ? null : 'no English article'].filter(Boolean).join(' · '))));
       row._h = h; return row; }),
-      hits.heQ ? el('div', {class:'res note'}, `Searched Hebrew Wikipedia for “${hits.heQ}”`) : null);
+      ...(hits.heQ ? [el('div', {class:'res note'}, `Searched Hebrew Wikipedia for “${hits.heQ}”`)] : []));
     // Fill in translated titles / descriptions for rows lacking an English title.
     const rows = [...results.querySelectorAll('.res[tabindex]')];
     const need = rows.filter(r => !r._h.en);
     translateMany(need.map(r => r._h.he), (i, v) => { if (v && tok === sToken) need[i].querySelector('.t').textContent = v; });
     const needD = rows.filter(r => r._h.desc && HEB.test(r._h.desc));
     translateMany(needD.map(r => r._h.desc), (i, v) => { if (v && tok === sToken) { const d = needD[i].querySelector('.d'); d.textContent = d.textContent.replace(needD[i]._h.desc, v); } });
-  } catch (e) { if (tok === sToken) results.replaceChildren(el('div', {class:'res note'}, 'Search failed: ' + e.message)); }
+  } catch (e) { if (tok === sToken) results.replaceChildren(el('div', {class:'res note'}, 'Search failed: ' + (e.name && e.name!=='Error' ? e.name+': ' : '') + e.message + (e.stack ? ' @ ' + String(e.stack).split('\n').slice(0,2).join(' | ').slice(0,200) : ''))); }
 }
 
 /* ---------- Random ---------- */

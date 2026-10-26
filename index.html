@@ -194,14 +194,46 @@ const MOBILE = /Mobi|iPhone|iPad|Android/i.test(navigator.userAgent) || (navigat
 async function api(lang, params) {
   const qs = new URLSearchParams(); Object.entries({format:'json', formatversion:2, origin:'*', ...params}).forEach(([k,v]) => qs.set(k, v));
   const hosts = MOBILE ? [`${lang}.m.wikipedia.org`, `${lang}.wikipedia.org`] : [`${lang}.wikipedia.org`, `${lang}.m.wikipedia.org`];
-  let lastErr;
+  const errs = [];
   for (const host of hosts) {
-    const r = await fetch(`https://${host}/w/api.php?${qs}`);
-    const raw = await r.text();
-    if (r.ok) { try { return JSON.parse(raw); } catch {} }
-    lastErr = new Error(`Wikipedia ${lang} (${host}${r.redirected ? ' → '+r.url : ''}) answered HTTP ${r.status} ${r.headers.get('content-type')||''} instead of JSON: ${raw.slice(0,120).replace(/\s+/g,' ')}`);
+    try {
+      const r = await fetch(`https://${host}/w/api.php?${qs}`);
+      const raw = await r.text();
+      if (r.ok) { try { return JSON.parse(raw); } catch {} }
+      errs.push(`${host}${r.redirected ? ' → '+r.url : ''}: HTTP ${r.status} ${r.headers.get('content-type')||''} ${raw.slice(0,80).replace(/\s+/g,' ')}`);
+    } catch (e) { errs.push(`${host}: ${e.name||''} ${e.message||e}`); }
   }
-  throw lastErr;
+  throw new Error(`Wikipedia ${lang} unreachable — ` + errs.join(' | '));
+}
+
+/* ---------- #debug: probe every host this page depends on and show what each answers ---------- */
+async function renderDebug() {
+  loadToken++;
+  const probes = [
+    ['he.wikipedia.org api', 'https://he.wikipedia.org/w/api.php?action=query&meta=siteinfo&siprop=general&format=json&formatversion=2&origin=*'],
+    ['he.m.wikipedia.org api', 'https://he.m.wikipedia.org/w/api.php?action=query&meta=siteinfo&siprop=general&format=json&formatversion=2&origin=*'],
+    ['en.wikipedia.org api', 'https://en.wikipedia.org/w/api.php?action=query&meta=siteinfo&siprop=general&format=json&formatversion=2&origin=*'],
+    ['he.wikipedia.org REST summary', 'https://he.wikipedia.org/api/rest_v1/page/summary/%D7%AA%D7%9C_%D7%90%D7%91%D7%99%D7%91'],
+    ['he.wikipedia.org REST search', 'https://he.wikipedia.org/w/rest.php/v1/search/title?q=%D7%AA%D7%9C&limit=2'],
+    ['upload.wikimedia.org image', 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4a/Commons-logo.svg/64px-Commons-logo.svg.png'],
+    ['translate GET', 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=he&tl=en&dt=t&q=%D7%A9%D7%9C%D7%95%D7%9D'],
+    ['translate POST', 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=he&tl=en&dt=t', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body:'q=%D7%A9%D7%9C%D7%95%D7%9D'}],
+    ['sefaria.org (control)', 'https://www.sefaria.org/api/calendars'],
+  ];
+  const table = el('table', {style:'border-collapse:collapse;font:.78rem/1.35 var(--f-ui);width:100%'});
+  const info = el('pre', {style:'white-space:pre-wrap;font:.75rem/1.4 var(--f-ui);color:var(--muted)'}, `UA: ${navigator.userAgent}\nMOBILE=${MOBILE} online=${navigator.onLine} origin=${location.origin}`);
+  main.replaceChildren(el('h1', {style:'font:600 1.3rem var(--f-ui)'}, 'Connectivity check'), info, el('div', {class:'tbl'}, table));
+  for (const [name, url, init] of probes) {
+    const row = el('tr', {}, el('td', {style:'padding:.3rem .4rem;border-bottom:1px solid var(--rule);white-space:nowrap;vertical-align:top'}, name), el('td', {style:'padding:.3rem .4rem;border-bottom:1px solid var(--rule);word-break:break-word'}, '…'));
+    table.append(row);
+    const t0 = performance.now();
+    try {
+      const r = await fetch(url, init);
+      const ct = r.headers.get('content-type') || '?';
+      const raw = ct.startsWith('image') ? '(image)' : (await r.text()).slice(0, 90).replace(/\s+/g,' ');
+      row.lastChild.textContent = `HTTP ${r.status} · ${ct} · ${Math.round(performance.now()-t0)}ms${r.redirected ? ' · redirected to '+r.url : ''}\n${raw}`;
+    } catch (e) { row.lastChild.textContent = `FAILED after ${Math.round(performance.now()-t0)}ms: ${e.name||''} ${e.message||e}`; }
+  }
 }
 
 /* ---------- Translation (Google's public endpoint, no key) ---------- */
@@ -286,7 +318,7 @@ let loadToken = 0;
 function route() {
   const h = decodeURIComponent(location.hash.slice(1)).replace(/_/g,' ').trim();
   closeResults();
-  if (!h) renderHome(); else loadArticle(h);
+  if (!h) renderHome(); else if (h === 'debug') renderDebug(); else loadArticle(h);
   window.scrollTo(0,0);
 }
 
@@ -325,9 +357,11 @@ async function search(full=false) {
       hits = (r.query?.pages||[]).sort((a,b)=>(a.index||0)-(b.index||0)).map(p => ({ he:p.title, desc:p.description, img:p.thumbnail?.source, en:p.langlinks?.[0]?.title }));
     } else {
       // English words: (1) English Wikipedia hits that have a Hebrew article, (2) the query translated into Hebrew and searched directly.
+      const fails = [];
       const [enR, heQ] = await Promise.all([
-        api('en', { generator: full?'search':'prefixsearch', [full?'gsrsearch':'gpssearch']: text, [full?'gsrlimit':'gpslimit']: 6, prop:'langlinks|description', lllang:'he', lllimit:50 }).catch(()=>null),
+        api('en', { generator: full?'search':'prefixsearch', [full?'gsrsearch':'gpssearch']: text, [full?'gsrlimit':'gpslimit']: 6, prop:'langlinks|description', lllang:'he', lllimit:50 }).catch(e => { fails.push(e.message); return null; }),
         tr1(text, 'en', 'he').catch(()=>null) ]);
+      if (!enR && (!heQ || !HEB.test(heQ))) throw new Error(fails[0] || translateError || 'neither Wikipedia nor the translator answered');
       if (tok !== sToken) return;
       const viaEn = (enR?.query?.pages||[]).sort((a,b)=>(a.index||0)-(b.index||0)).filter(p => p.langlinks?.[0]).map(p => ({ he:p.langlinks[0].title, en:p.title, desc:p.description, viaEn:true }));
       let direct = [];

@@ -215,6 +215,11 @@ async function renderDebug() {
     ['en.wikipedia.org api', 'https://en.wikipedia.org/w/api.php?action=query&meta=siteinfo&siprop=general&format=json&formatversion=2&origin=*'],
     ['he.wikipedia.org REST summary', 'https://he.wikipedia.org/api/rest_v1/page/summary/%D7%AA%D7%9C_%D7%90%D7%91%D7%99%D7%91'],
     ['he.wikipedia.org REST search', 'https://he.wikipedia.org/w/rest.php/v1/search/title?q=%D7%AA%D7%9C&limit=2'],
+    ['he.m.wikipedia.org REST search', 'https://he.m.wikipedia.org/w/rest.php/v1/search/title?q=%D7%AA%D7%9C&limit=2'],
+    ['he.wikipedia.org prefixsearch', 'https://he.wikipedia.org/w/api.php?format=json&formatversion=2&origin=*&generator=prefixsearch&gpssearch=%D7%AA%D7%9C&gpslimit=2&prop=description'],
+    ['he.m.wikipedia.org prefixsearch', 'https://he.m.wikipedia.org/w/api.php?format=json&formatversion=2&origin=*&generator=prefixsearch&gpssearch=%D7%AA%D7%9C&gpslimit=2&prop=description'],
+    ['he.m.wikipedia.org parse (what articles use)', 'https://he.m.wikipedia.org/w/api.php?format=json&formatversion=2&origin=*&action=parse&page=%D7%93%D7%91%D7%9C%D7%99%D7%9F&prop=sections'],
+    ['he.m.wikipedia.org opensearch', 'https://he.m.wikipedia.org/w/api.php?format=json&origin=*&action=opensearch&search=%D7%AA%D7%9C&limit=2'],
     ['upload.wikimedia.org image', 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4a/Commons-logo.svg/64px-Commons-logo.svg.png'],
     ['translate GET', 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=he&tl=en&dt=t&q=%D7%A9%D7%9C%D7%95%D7%9D'],
     ['translate POST', 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=he&tl=en&dt=t', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body:'q=%D7%A9%D7%9C%D7%95%D7%9D'}],
@@ -345,31 +350,69 @@ results.addEventListener('keydown', e => { const items = [...results.querySelect
 clearBtn.onclick = () => { q.value=''; clearBtn.hidden = true; closeResults(); q.focus(); };
 document.addEventListener('click', e => { if (!e.target.closest('.search')) closeResults(); });
 function closeResults() { results.replaceChildren(); }
+// Three independent ways to search a wiki; whichever answers first in order wins. Returns [{title, desc, img}].
+async function searchWiki(lang, text, full, limit) {
+  const errs = [];
+  // 1. Action API, with page props in one round trip.
+  try {
+    const r = await api(lang, { generator: full?'search':'prefixsearch', [full?'gsrsearch':'gpssearch']: text, [full?'gsrlimit':'gpslimit']: limit, prop:'description|pageimages', piprop:'thumbnail', pithumbsize:96 });
+    return (r.query?.pages||[]).sort((a,b)=>(a.index||0)-(b.index||0)).map(p => ({ title:p.title, desc:p.description, img:p.thumbnail?.source }));
+  } catch (e) { errs.push('action API: ' + e.message); }
+  // 2. MediaWiki REST search.
+  for (const host of (MOBILE ? [`${lang}.m.wikipedia.org`, `${lang}.wikipedia.org`] : [`${lang}.wikipedia.org`, `${lang}.m.wikipedia.org`])) {
+    try {
+      const r = await fetch(`https://${host}/w/rest.php/v1/search/${full?'page':'title'}?q=${encodeURIComponent(text)}&limit=${limit}`);
+      const j = JSON.parse(await r.text());
+      if (!Array.isArray(j.pages)) throw new Error('unexpected shape');
+      return j.pages.map(p => ({ title:p.title, desc:p.description, img:p.thumbnail?.url ? (p.thumbnail.url.startsWith('//') ? 'https:'+p.thumbnail.url : p.thumbnail.url) : null }));
+    } catch (e) { errs.push(`REST ${host}: ${e.message}`); }
+  }
+  // 3. OpenSearch.
+  try {
+    const r = await api(lang, { action:'opensearch', search:text, limit, namespace:0, redirects:'resolve' });
+    if (!Array.isArray(r) || !Array.isArray(r[1])) throw new Error('unexpected shape');
+    return r[1].map((t,i) => ({ title:t, desc:r[2]?.[i] || '' }));
+  } catch (e) { errs.push('opensearch: ' + e.message); }
+  throw new Error('search failed on every route — ' + errs.join(' | '));
+}
+// Interlanguage links for a list of titles: Map<title, titleInTargetLang>. Best effort; an empty Map on failure.
+async function langlinks(lang, titles, target) {
+  const out = new Map();
+  if (!titles.length) return out;
+  try {
+    const r = await api(lang, { prop:'langlinks', titles: titles.slice(0, 50).join('|'), lllang: target, lllimit: 500, redirects: 1 });
+    for (const p of (r.query?.pages||[])) if (p.langlinks?.[0]) out.set(p.title, p.langlinks[0].title);
+    for (const rd of (r.query?.redirects||[])) if (out.has(rd.to)) out.set(rd.from, out.get(rd.to));
+  } catch {}
+  return out;
+}
 async function search(full=false) {
   const text = q.value.trim(); const tok = ++sToken;
   if (text.length < 2) return closeResults();
   results.replaceChildren(el('div', {class:'res note'}, 'Searching…'));
   try {
     let hits = [];
-    const pageProps = { prop:'description|pageimages|langlinks', piprop:'thumbnail', pithumbsize:96, lllang:'en', lllimit:50 };
     if (HEB.test(text)) {
-      const r = await api('he', { generator: full?'search':'prefixsearch', [full?'gsrsearch':'gpssearch']: text, [full?'gsrlimit':'gpslimit']: 8, ...pageProps });
-      hits = (r.query?.pages||[]).sort((a,b)=>(a.index||0)-(b.index||0)).map(p => ({ he:p.title, desc:p.description, img:p.thumbnail?.source, en:p.langlinks?.[0]?.title }));
+      const found = await searchWiki('he', text, full, 8);
+      if (tok !== sToken) return;
+      const ll = await langlinks('he', found.map(f => f.title), 'en');
+      hits = found.map(f => ({ he:f.title, desc:f.desc, img:f.img, en:ll.get(f.title) }));
     } else {
       // English words: (1) English Wikipedia hits that have a Hebrew article, (2) the query translated into Hebrew and searched directly.
       const fails = [];
-      const [enR, heQ] = await Promise.all([
-        api('en', { generator: full?'search':'prefixsearch', [full?'gsrsearch':'gpssearch']: text, [full?'gsrlimit':'gpslimit']: 6, prop:'langlinks|description', lllang:'he', lllimit:50 }).catch(e => { fails.push(e.message); return null; }),
+      const [enFound, heQ] = await Promise.all([
+        searchWiki('en', text, full, 6).catch(e => { fails.push(e.message); return null; }),
         tr1(text, 'en', 'he').catch(()=>null) ]);
-      if (!enR && (!heQ || !HEB.test(heQ))) throw new Error(fails[0] || translateError || 'neither Wikipedia nor the translator answered');
+      if (!enFound && (!heQ || !HEB.test(heQ))) throw new Error(fails[0] || translateError || 'neither Wikipedia nor the translator answered');
       if (tok !== sToken) return;
-      const viaEn = (enR?.query?.pages||[]).sort((a,b)=>(a.index||0)-(b.index||0)).filter(p => p.langlinks?.[0]).map(p => ({ he:p.langlinks[0].title, en:p.title, desc:p.description, viaEn:true }));
-      let direct = [];
-      if (heQ && HEB.test(heQ)) {
-        const r = await api('he', { generator: full?'search':'prefixsearch', [full?'gsrsearch':'gpssearch']: heQ, [full?'gsrlimit':'gpslimit']: 8, ...pageProps }).catch(()=>null);
-        direct = (r?.query?.pages||[]).sort((a,b)=>(a.index||0)-(b.index||0)).map(p => ({ he:p.title, desc:p.description, img:p.thumbnail?.source, en:p.langlinks?.[0]?.title }));
-      }
-      const seen = new Set(); hits = [...viaEn, ...direct].filter(h => !seen.has(h.he) && seen.add(h.he));
+      const [enLL, direct] = await Promise.all([
+        enFound ? langlinks('en', enFound.map(f => f.title), 'he') : new Map(),
+        (heQ && HEB.test(heQ)) ? searchWiki('he', heQ, full, 8).catch(()=>[]) : [] ]);
+      if (tok !== sToken) return;
+      const viaEn = (enFound||[]).filter(f => enLL.get(f.title)).map(f => ({ he:enLL.get(f.title), en:f.title, desc:f.desc, viaEn:true }));
+      const dLL = await langlinks('he', direct.map(f => f.title), 'en');
+      const directHits = direct.map(f => ({ he:f.title, desc:f.desc, img:f.img, en:dLL.get(f.title) }));
+      const seen = new Set(); hits = [...viaEn, ...directHits].filter(h => !seen.has(h.he) && seen.add(h.he));
       if (heQ && HEB.test(heQ)) hits.heQ = heQ;
     }
     if (tok !== sToken) return;
@@ -386,7 +429,7 @@ async function search(full=false) {
     translateMany(need.map(r => r._h.he), (i, v) => { if (v && tok === sToken) need[i].querySelector('.t').textContent = v; });
     const needD = rows.filter(r => r._h.desc && HEB.test(r._h.desc));
     translateMany(needD.map(r => r._h.desc), (i, v) => { if (v && tok === sToken) { const d = needD[i].querySelector('.d'); d.textContent = d.textContent.replace(needD[i]._h.desc, v); } });
-  } catch (e) { if (tok === sToken) results.replaceChildren(el('div', {class:'res note'}, 'Search failed: ' + (e.name && e.name!=='Error' ? e.name+': ' : '') + e.message + (e.stack ? ' @ ' + String(e.stack).split('\n').slice(0,2).join(' | ').slice(0,200) : ''))); }
+  } catch (e) { if (tok === sToken) results.replaceChildren(el('div', {class:'res note'}, 'Search failed: ' + (e.name && e.name!=='Error' ? e.name+': ' : '') + e.message)); }
 }
 
 /* ---------- Random ---------- */

@@ -7,4 +7,4 @@ Live: https://gideonpotok.github.io/other-language-wikipedia-reader/
 - No build, no dependencies: `index.html` is the whole app.
 - Article text comes from the Wikipedia Action API (`he.wikipedia.org`, `en.wikipedia.org`), CC BY-SA 4.0.
 - Translation runs through a chain of providers: Google's free endpoint, Google's dictionary endpoint, then MyMemory. A provider that fails or rate-limits is rested for a while and the next one takes the batch. Under **Translators** you can add a Claude API key (best quality; can be set to go first) or a Google Cloud Translation key; keys stay in the browser's localStorage.
-- Translations, font size and view mode are cached in the browser's localStorage.
+- Offline reading: every article you open (and its interlanguage links and section lists) is kept in IndexedDB, along with all translations. When Wikipedia can't be reached the saved copy is shown with a note of its age. Budget is about 80 MB of pages and 40 MB of translations, oldest dropped first; the home page shows what's saved and can clear it. Images are not saved. Font size and view mode live in localStorage.

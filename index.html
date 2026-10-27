@@ -173,6 +173,18 @@ main{max-width:46rem;margin:0 auto;padding-inline:max(16px,env(safe-area-inset-l
 .offline{display:flex;gap:.8rem;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:1.4rem;padding-top:.8rem;border-top:1px solid var(--rule);font:400 .8rem/1.5 var(--f-ui);color:var(--muted)}
 .offline button{font-size:.8rem;padding:.25rem .7rem}
 .tag{display:inline-block;margin-left:.5rem;font:500 .65rem var(--f-ui);letter-spacing:.06em;text-transform:uppercase;color:var(--accent);border:1px solid currentColor;border-radius:999px;padding:0 .4rem;vertical-align:middle}
+
+.body h2,.body h3,.body h4{scroll-margin-top:8.5rem}
+.fab{position:fixed;right:max(1rem,env(safe-area-inset-right,0px));bottom:calc(1.2rem + env(safe-area-inset-bottom,0px));width:2.9rem;height:2.9rem;border-radius:50%;background:var(--paper);border:1px solid var(--rule);box-shadow:0 6px 20px rgba(0,0,0,.15);font-size:1.3rem;line-height:1;padding:0;z-index:8}
+.toc{list-style:none;margin:0;padding:0;display:grid;gap:.15rem;max-height:60vh;overflow:auto}
+.toc li button{width:100%;text-align:left;border:0;border-radius:.4rem;padding:.4rem .5rem;display:flex;justify-content:space-between;gap:.6rem;align-items:baseline;font-size:.9rem}
+.toc li button:hover{background:var(--bg)}
+.toc li.l3 button{padding-left:1.4rem;font-size:.85rem}.toc li.l4 button{padding-left:2.4rem;font-size:.8rem;color:var(--muted)}
+.toc li small,.sheet .top{font-family:var(--f-he);direction:rtl;color:var(--muted)}
+.sheet .top{font-family:var(--f-ui);direction:ltr;margin-bottom:.5rem;color:var(--accent)}
+.sheet .row{justify-content:flex-start}
+.sheet .note{min-height:1.2em;margin-top:.6rem}
+.copyout{width:100%;height:12rem;margin-top:.6rem;font:.8rem/1.4 var(--f-ui);border:1px solid var(--rule);border-radius:.5rem;padding:.5rem;background:var(--bg);color:var(--fg)}
 </style>
 </head>
 <body>
@@ -507,6 +519,63 @@ async function fillOfflineInfo() {
   box.replaceChildren(el('span', {}, `${sum.pages} pages and ${sum.trs} translations saved for offline reading (${fmtMB(sum.bytes)}). Pages you have opened reopen without a connection.`), el('button', {onclick: async () => { await clearOffline(); recents = []; store.set('recents', []); renderHome(); }}, 'Clear'));
 }
 
+/* ---------- Sections sheet and Copy sheet ---------- */
+const sheet = (title, ...content) => {
+  document.querySelector('.settings-back')?.remove();
+  const panel = el('div', {class:'settings sheet', role:'dialog', 'aria-label':title}, el('h2', {}, title), ...content);
+  const back = el('div', {class:'settings-back', onclick:e => { if (e.target === back) back.remove(); }}, panel);
+  document.body.append(back);
+  document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { back.remove(); document.removeEventListener('keydown', esc); } });
+  return back;
+};
+const blockText = (b, lang) => {
+  const src = b.querySelector(lang === 'en' ? '.t-en' : '.t-he'); if (!src) return '';
+  if (lang === 'en' && b.classList.contains('pending')) return '';
+  const c = src.cloneNode(true); c.querySelectorAll('sup.reference, .mw-editsection').forEach(n => n.remove());
+  return c.textContent.replace(/\s+/g, ' ').trim();
+};
+function openSections(body) {
+  const heads = [...body.querySelectorAll('h2.blk, h3.blk, h4.blk')];
+  if (!heads.length) { sheet('Sections', el('p', {}, 'This article has no section headings.')); return; }
+  const list = el('ol', {class:'toc'});
+  for (const h of heads) {
+    const en = blockText(h, 'en'), he = blockText(h, 'he');
+    list.append(el('li', {class:'l' + h.tagName[1]}, el('button', {onclick:() => { back.remove(); h.scrollIntoView({block:'start', behavior:'smooth'}); }}, el('span', {}, en || he), en && en !== he ? el('small', {}, he) : null)));
+  }
+  const back = sheet('Sections', el('button', {class:'top', onclick:() => { back.remove(); window.scrollTo({top:0, behavior:'smooth'}); }}, '↑ Top of article'), list);
+}
+function articleText(body, lang, title, heTitle) {
+  const lines = [];
+  if (lang !== 'he') lines.push(title); if (lang !== 'en') lines.push(heTitle); lines.push('');
+  let pending = 0;
+  for (const b of body.querySelectorAll('.blk')) {
+    if (b.closest('table, .infobox, details')) continue;
+    const tag = b.tagName, en = blockText(b, 'en'), he = blockText(b, 'he');
+    if (!en && !he) continue;
+    if (lang === 'en' && !en) pending++;
+    const pick = lang === 'en' ? (en || he) : lang === 'he' ? he : null;
+    if (/^H[2-4]$/.test(tag) && lines[lines.length-1] !== '') lines.push('');
+    const mark = /^H[2-4]$/.test(tag) ? '#'.repeat(+tag[1]) + ' ' : /^(LI|DD)$/.test(tag) || b.classList.contains('li-own') ? '• ' : '';
+    if (lang === 'both') { if (/^H[2-4]$/.test(tag)) lines.push(mark + (en || he) + (en && en !== he ? '  /  ' + he : '')); else { lines.push(mark + (en || '(untranslated)')); lines.push(mark ? '  ' + he : he); } }
+    else lines.push(mark + pick);
+    if (!/^(LI|DD)$/.test(tag)) lines.push('');
+  }
+  lines.push(`Source: https://he.wikipedia.org/wiki/${encodeURIComponent(heTitle.replace(/ /g, '_'))} (CC BY-SA 4.0)` + (lang !== 'he' ? '. English: machine translation.' : ''));
+  return { text: lines.join('\n').replace(/\n{3,}/g, '\n\n'), pending };
+}
+function openCopy(body, title, heTitle) {
+  const note = el('p', {class:'note'});
+  const run = async (lang, btn) => {
+    const { text, pending } = articleText(body, lang, title, heTitle);
+    const words = text.split(/\s+/).length;
+    try { await navigator.clipboard.writeText(text); btn.textContent = 'Copied'; note.textContent = `${words.toLocaleString()} words copied` + (pending ? ` (${pending} paragraphs were still untranslated and went in as Hebrew)` : '') + '.'; setTimeout(() => back.remove(), 900); }
+    catch { note.textContent = 'The browser refused the clipboard. The text is selected below; copy it from there.'; const ta = el('textarea', {class:'copyout', readonly:true}, text); back.querySelector('.copyout')?.remove(); back.querySelector('.sheet').append(ta); ta.focus(); ta.select(); }
+  };
+  const btn = (label, lang) => { const b = el('button', {}, label); b.onclick = () => run(lang, b); return b; };
+  const pending = body.querySelectorAll('.blk.pending').length;
+  const back = sheet('Copy article', el('p', {}, 'Plain text with Markdown headings. Tables and the infobox are left out.' + (pending ? ` ${pending} paragraphs are still being translated; copy now and they go in as Hebrew, or wait a moment.` : '')), el('div', {class:'row'}, btn('English', 'en'), btn('עברית', 'he'), btn('Both, paragraph by paragraph', 'both')), note);
+}
+
 /* ---------- Search ---------- */
 const q = $('#q'), results = $('#results'), clearBtn = $('#clear');
 let sTimer, sToken = 0;
@@ -676,11 +745,13 @@ async function loadArticle(title) {
   Object.entries(modeBtns).forEach(([k,v]) => modes.append(el('button', {'aria-pressed': String(mode===k), onclick:()=>setMode(k)}, v)));
   const status = el('span', {class:'status'});
   const cmpBtn = el('button', {onclick:()=>{ cmp.classList.toggle('open'); if (cmp.classList.contains('open')) buildCompare(); }}, 'Compare sections');
-  meta.append(modes, enTitle ? el('a', {href:`https://en.wikipedia.org/wiki/${encodeURIComponent(enTitle.replace(/ /g,'_'))}`, target:'_blank', rel:'noopener'}, 'English article ↗') : el('span', {class:'chip only'}, 'Hebrew-only · no English article'), el('a', {href:`https://he.wikipedia.org/wiki/${encodeURIComponent(heTitle.replace(/ /g,'_'))}`, target:'_blank', rel:'noopener'}, 'he.wikipedia ↗'), cmpBtn, status);
+  const secBtn = el('button', {onclick:()=>openSections(body)}, 'Sections');
+  const copyBtn = el('button', {onclick:()=>openCopy(body, enTitle || h1.textContent, heTitle)}, 'Copy');
+  meta.append(modes, enTitle ? el('a', {href:`https://en.wikipedia.org/wiki/${encodeURIComponent(enTitle.replace(/ /g,'_'))}`, target:'_blank', rel:'noopener'}, 'English article ↗') : el('span', {class:'chip only'}, 'Hebrew-only · no English article'), el('a', {href:`https://he.wikipedia.org/wiki/${encodeURIComponent(heTitle.replace(/ /g,'_'))}`, target:'_blank', rel:'noopener'}, 'he.wikipedia ↗'), secBtn, cmpBtn, copyBtn, status);
   const body = el('article', {class:'body', 'data-mode':mode, lang:'he'});
   body.append(...root.childNodes);
   const foot = el('div', {class:'foot'}, 'Text from Hebrew Wikipedia, CC BY-SA 4.0. English is machine translation; tap a paragraph to read the original.');
-  main.replaceChildren(head, cmp, body, foot);
+  main.replaceChildren(head, cmp, body, foot, el('button', {class:'fab', 'aria-label':'Jump to a section', onclick:()=>openSections(body)}, '≡'));
   if (offlineAt) main.insertBefore(el('div', {class:'banner ok'}, `Offline copy saved ${ago(offlineAt)}; Wikipedia could not be reached. Images need a connection.`), cmp);
   remember(heTitle, enTitle);
   idb.put('meta', { k: heTitle, en: enTitle, at: Date.now() });
